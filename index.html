@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="3D Tropical Forest Monster Hunter Game - A Three.js powered game where you hunt monsters in a 3D environment">
+    <meta name="keywords" content="3D game, Three.js, monster hunter, tropical forest, web game">
+    <meta name="author" content="Shreyashi Raj">
+    <title>3D Tropical Forest Monster Hunter Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            z-index: 100;
+            pointer-events: none;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 30px;
+            height: 30px;
+            pointer-events: none;
+            z-index: 100;
+        }
+        #crosshair::before, #crosshair::after {
+            content: '';
+            position: absolute;
+            background-color: rgba(255, 50, 50, 0.8);
+        }
+        #crosshair::before {
+            width: 30px;
+            height: 2px;
+            top: 14px;
+            left: 0;
+        }
+        #crosshair::after {
+            width: 2px;
+            height: 30px;
+            top: 0;
+            left: 14px;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            z-index: 100;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>Score: <span id="score">0</span> | Health: <span id="health">100</span></div>
+        <div>Monsters: <span id="monsterCount">0</span></div>
+    </div>
+    <div id="crosshair"></div>
+    <div id="instructions">
+        Click to start | WASD to move | Mouse to look | SPACE to shoot
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/PointerLockControls.min.js"></script>
+    <script>
+        // Main variables
+        let scene, camera, renderer, controls;
+        let monsters = [];
+        let trees = [];
+        let bushes = [];
+        let score = 0, health = 100;
+        let monsterCount = 0;
+        let clock = new THREE.Clock();
+        let raycaster = new THREE.Raycaster();
+        let moveForward = false;
+        let moveBackward = false;
+        let moveLeft = false;
+        let moveRight = false;
+        let canShoot = true;
+        
+        // Initialize the game
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Sky blue
+            scene.fog = new THREE.Fog(0x87CEEB, 20, 100);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = 2;
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.8);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 15);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            scene.add(directionalLight);
+            
+            // Create ground (grass)
+            const groundGeometry = new THREE.PlaneGeometry(200, 200);
+            const groundMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x32CD32, // Lime green
+                roughness: 0.9
+            });
+            const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+            
+            // Add grass patches
+            addGrass();
+            
+            // Create environment
+            createEnvironment();
+            
+            // Create initial monsters
+            for (let i = 0; i < 5; i++) {
+                createMonster();
+            }
+            
+            // Initialize controls
+            controls = new THREE.PointerLockControls(camera, document.body);
+            
+            // Event listeners for pointer lock
+            document.addEventListener('click', function() {
+                controls.lock();
+            });
+            
+            controls.addEventListener('lock', function() {
+                document.getElementById('instructions').style.display = 'none';
+            });
+            
+            controls.addEventListener('unlock', function() {
+                document.getElementById('instructions').style.display = 'block';
+            });
+            
+            // Movement controls
+            const onKeyDown = function(event) {
+                switch (event.code) {
+                    case 'KeyW': moveForward = true; break;
+                    case 'KeyA': moveLeft = true; break;
+                    case 'KeyS': moveBackward = true; break;
+                    case 'KeyD': moveRight = true; break;
+                    case 'Space': if (canShoot) shoot(); break;
+                }
+            };
+            
+            const onKeyUp = function(event) {
+                switch (event.code) {
+                    case 'KeyW': moveForward = false; break;
+                    case 'KeyA': moveLeft = false; break;
+                    case 'KeyS': moveBackward = false; break;
+                    case 'KeyD': moveRight = false; break;
+                }
+            };
+            
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+            
+            // Handle window resize
+            window.addEventListener('resize', onWindowResize);
+            
+            // Start animation loop
+            animate();
+        }
+        
+        // Add grass patches
+        function addGrass() {
+            for (let i = 0; i < 500; i++) {
+                const grassGeometry = new THREE.BoxGeometry(0.1, Math.random() * 0.5 + 0.2, 0.1);
+                const grassMaterial = new THREE.MeshBasicMaterial({ color: 0x228B22 }); // Forest green
+                const grass = new THREE.Mesh(grassGeometry, grassMaterial);
+                
+                grass.position.set(
+                    (Math.random() - 0.5) * 180,
+                    0.1,
+                    (Math.random() - 0.5) * 180
+                );
+                
+                scene.add(grass);
+            }
+        }
+        
+        // Create environment (trees and bushes)
+        function createEnvironment() {
+            // Create trees
+            for (let i = 0; i < 30; i++) {
+                createTree();
+            }
+            
+            // Create bushes
+            for (let i = 0; i < 50; i++) {
+                createBush();
+            }
+        }
+        
+        // Create a realistic tree
+        function createTree() {
+            const tree = new THREE.Group();
+            
+            // Tree trunk (tapered)
+            const trunkHeight = Math.random() * 5 + 5;
+            const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, trunkHeight, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x8B4513, // Brown
+                roughness: 0.9
+            });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.y = trunkHeight / 2;
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            tree.add(trunk);
+            
+            // Tree leaves (multiple layers)
+            const leafLayers = 3;
+            for (let i = 0; i < leafLayers; i++) {
+                const leafSize = 3 - i * 0.7;
+                const leafGeometry = new THREE.SphereGeometry(leafSize, 6, 6);
+                const leafMaterial = new THREE.MeshStandardMaterial({ 
+                    color: 0x228B22, // Green
+                    roughness: 0.8
+                });
+                const leaves = new THREE.Mesh(leafGeometry, leafMaterial);
+                leaves.position.y = trunkHeight - 1 + i * 1.5;
+                leaves.castShadow = true;
+                leaves.receiveShadow = true;
+                tree.add(leaves);
+            }
+            
+            // Position tree
+            tree.position.set(
+                (Math.random() - 0.5) * 180,
+                0,
+                (Math.random() - 0.5) * 180
+            );
+            
+            scene.add(tree);
+            trees.push(tree); // Store reference for collision detection
+        }
+        
+        // Create a bush
+        function createBush() {
+            const bushGeometry = new THREE.SphereGeometry(Math.random() * 0.8 + 0.5, 6, 6);
+            const bushMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x32CD32, // LimeGreen
+                roughness: 0.9
+            });
+            const bush = new THREE.Mesh(bushGeometry, bushMaterial);
+            
+            bush.position.set(
+                (Math.random() - 0.5) * 180,
+                0.5,
+                (Math.random() - 0.5) * 180
+            );
+            
+            bush.castShadow = true;
+            bush.receiveShadow = true;
+            scene.add(bush);
+            bushes.push(bush); // Store reference for collision detection
+        }
+        
+        // Create a monster (more monster-like)
+        function createMonster() {
+            const monster = new THREE.Group();
+            
+            // Monster body
+            const bodyGeometry = new THREE.BoxGeometry(1.2, 1.5, 1);
+            const bodyMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x8B0000, // Dark red
+                roughness: 0.7
+            });
+            const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            body.position.y = 0.75;
+            body.castShadow = true;
+            monster.add(body);
+            
+            // Monster head
+            const headGeometry = new THREE.BoxGeometry(1, 1, 0.8);
+            const headMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0xA52A2A, // Brown
+                roughness: 0.7
+            });
+            const head = new THREE.Mesh(headGeometry, headMaterial);
+            head.position.set(0, 1.7, 0);
+            head.castShadow = true;
+            monster.add(head);
+            
+            // Monster eyes
+            const eyeGeometry = new THREE.SphereGeometry(0.15, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xFF0000 }); // Red
+            
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(0.3, 1.8, 0.4);
+            monster.add(leftEye);
+            
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(-0.3, 1.8, 0.4);
+            monster.add(rightEye);
+            
+            // Monster horns
+            const hornGeometry = new THREE.ConeGeometry(0.1, 0.5, 6);
+            const hornMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 }); // Dark gray
+            
+            const leftHorn = new THREE.Mesh(hornGeometry, hornMaterial);
+            leftHorn.position.set(0.2, 2.3, 0);
+            leftHorn.rotation.x = -Math.PI / 2;
+            monster.add(leftHorn);
+            
+            const rightHorn = new THREE.Mesh(hornGeometry, hornMaterial);
+            rightHorn.position.set(-0.2, 2.3, 0);
+            rightHorn.rotation.x = -Math.PI / 2;
+            monster.add(rightHorn);
+            
+            // Monster arms
+            const armGeometry = new THREE.CylinderGeometry(0.15, 0.15, 1.2, 8);
+            const armMaterial = new THREE.MeshStandardMaterial({ color: 0x8B0000 }); // Dark red
+            
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(0.8, 0.7, 0);
+            leftArm.rotation.z = Math.PI / 4;
+            leftArm.castShadow = true;
+            monster.add(leftArm);
+            
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(-0.8, 0.7, 0);
+            rightArm.rotation.z = -Math.PI / 4;
+            rightArm.castShadow = true;
+            monster.add(rightArm);
+            
+            // Monster legs
+            const legGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1, 8);
+            const legMaterial = new THREE.MeshStandardMaterial({ color: 0x8B0000 }); // Dark red
+            
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(0.4, -0.5, 0);
+            leftLeg.castShadow = true;
+            monster.add(leftLeg);
+            
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(-0.4, -0.5, 0);
+            rightLeg.castShadow = true;
+            monster.add(rightLeg);
+            
+            // Random position
+            monster.position.set(
+                (Math.random() - 0.5) * 80,
+                0,
+                (Math.random() - 0.5) * 80
+            );
+            
+            scene.add(monster);
+            
+            monsters.push({
+                mesh: monster,
+                speed: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.02,
+                    0,
+                    (Math.random() - 0.5) * 0.02
+                ),
+                rotationSpeed: (Math.random() - 0.5) * 0.02
+            });
+            
+            monsterCount++;
+            document.getElementById('monsterCount').textContent = monsterCount;
+        }
+        
+        // Shooting function
+        function shoot() {
+            if (!controls.isLocked) return;
+            
+            canShoot = false;
+            setTimeout(() => { canShoot = true; }, 300); // Cooldown period
+            
+            // Create shooting effect
+            createShootingEffect();
+            
+            // Raycasting for hit detection
+            raycaster.setFromCamera(new THREE.Vector2(), camera);
+            const intersects = raycaster.intersectObjects(monsters.map(m => m.mesh), true); // recursive = true
+            
+            if (intersects.length > 0) {
+                // Hit a monster
+                // Find which monster was hit (could be any part of the monster group)
+                let hitMonster = null;
+                let monsterIndex = -1;
+                
+                for (let i = 0; i < intersects.length; i++) {
+                    let obj = intersects[i].object;
+                    // Traverse up the hierarchy to find the monster group
+                    while (obj && !monsters.find(m => m.mesh === obj)) {
+                        obj = obj.parent;
+                    }
+                    if (obj) {
+                        monsterIndex = monsters.findIndex(m => m.mesh === obj);
+                        if (monsterIndex !== -1) {
+                            hitMonster = obj;
+                            break;
+                        }
+                    }
+                }
+                
+                if (hitMonster && monsterIndex !== -1) {
+                    // Remove monster
+                    scene.remove(monsters[monsterIndex].mesh);
+                    monsters.splice(monsterIndex, 1);
+                    
+                    // Update score
+                    score += 150;
+                    document.getElementById('score').textContent = score;
+                    
+                    // Create new monster
+                    setTimeout(createMonster, 1000);
+                    monsterCount--;
+                    document.getElementById('monsterCount').textContent = monsterCount;
+                }
+            }
+        }
+        
+        // Create shooting visual effect
+        function createShootingEffect() {
+            // Flash effect
+            const flash = document.createElement('div');
+            flash.style.position = 'absolute';
+            flash.style.top = '50%';
+            flash.style.left = '50%';
+            flash.style.transform = 'translate(-50%, -50%)';
+            flash.style.width = '20px';
+            flash.style.height = '20px';
+            flash.style.background = 'rgba(255, 255, 200, 0.8)';
+            flash.style.borderRadius = '50%';
+            flash.style.pointerEvents = 'none';
+            flash.style.zIndex = '101';
+            document.body.appendChild(flash);
+            
+            setTimeout(() => {
+                document.body.removeChild(flash);
+            }, 50);
+        }
+        
+        // Move player based on controls
+        function movePlayer(delta) {
+            const speed = 10.0;
+            const direction = new THREE.Vector3();
+            
+            if (controls.isLocked) {
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+                
+                // Save current position for collision detection
+                const currentPosition = camera.position.clone();
+                
+                // Move player
+                if (moveForward || moveBackward) camera.translateZ(-direction.z * speed * delta);
+                if (moveLeft || moveRight) camera.translateX(direction.x * speed * delta);
+                
+                // Keep player on the ground (constrain Y position)
+                camera.position.y = 2;
+                
+                // Keep player within ground boundaries
+                camera.position.x = Math.max(-95, Math.min(95, camera.position.x));
+                camera.position.z = Math.max(-95, Math.min(95, camera.position.z));
+                
+                // Check for collisions with trees
+                let collision = false;
+                const playerPosition = new THREE.Vector2(camera.position.x, camera.position.z);
+                
+                // Check collision with trees
+                for (let i = 0; i < trees.length; i++) {
+                    const treePosition = new THREE.Vector2(trees[i].position.x, trees[i].position.z);
+                    const distance = playerPosition.distanceTo(treePosition);
+                    if (distance < 2.0) { // Tree collision radius
+                        collision = true;
+                        break;
+                    }
+                }
+                
+                // Check collision with bushes
+                if (!collision) {
+                    for (let i = 0; i < bushes.length; i++) {
+                        const bushPosition = new THREE.Vector2(bushes[i].position.x, bushes[i].position.z);
+                        const distance = playerPosition.distanceTo(bushPosition);
+                        if (distance < 1.0) { // Bush collision radius
+                            collision = true;
+                            break;
+                        }
+                    }
+                }
+                
+                // If collision detected, revert to previous position
+                if (collision) {
+                    camera.position.x = currentPosition.x;
+                    camera.position.z = currentPosition.z;
+                }
+            }
+        }
+        
+        // Update monsters
+        function updateMonsters(delta) {
+            monsters.forEach(monster => {
+                // Move monster
+                monster.mesh.position.add(monster.speed.clone().multiplyScalar(delta * 100));
+                
+                // Rotate monster
+                monster.mesh.rotation.y += monster.rotationSpeed;
+                
+                // Bounce off boundaries
+                if (Math.abs(monster.mesh.position.x) > 90) monster.speed.x *= -1;
+                if (Math.abs(monster.mesh.position.z) > 90) monster.speed.z *= -1;
+            });
+            
+            // Occasionally add new monsters
+            if (monsters.length < 10 && Math.random() < 0.005) {
+                createMonster();
+            }
+        }
+        
+        // Check collisions
+        function checkCollisions() {
+            monsters.forEach(monster => {
+                const distance = new THREE.Vector2(
+                    camera.position.x - monster.mesh.position.x,
+                    camera.position.z - monster.mesh.position.z
+                ).length();
+                
+                if (distance < 2) {
+                    // Player hit by monster
+                    health -= 0.3;
+                    document.getElementById('health').textContent = Math.max(0, Math.floor(health));
+                }
+            });
+            
+            // Ensure player stays on ground after any potential collision effects
+            if (controls.isLocked) {
+                camera.position.y = 2;
+            }
+        }
+        
+        // Handle window resize
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = Math.min(clock.getDelta(), 0.1);
+            
+            // Update game elements
+            movePlayer(delta);
+            updateMonsters(delta);
+            checkCollisions();
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        // Start the game
+        init();
+    </script>
+</body>
+</html>

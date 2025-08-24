@@ -1,0 +1,19 @@
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*_backup.*
+
+# Log files
+*.log
+
+# Force line endings to be LF for all text files
+* text=auto eol=lf
