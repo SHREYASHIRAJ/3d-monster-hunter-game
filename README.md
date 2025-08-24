@@ -15,7 +15,7 @@ A 3D game built with Three.js where you hunt monsters in a tropical forest envir
 - Score and health system
 
 ## Deployment
-This game is deployed using GitHub Pages and can be accessed at: https://SHREYASHIRAJ.github.io/3d-monster-hunter-game/
+This game is deployed using GitHub Pages and can be accessed at: https://github.com/SHREYASHIRAJ/3d-monster-hunter-game
 
 ## Local Development
 To run the game locally:
